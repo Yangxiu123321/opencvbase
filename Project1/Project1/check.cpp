@@ -6,10 +6,9 @@
 //#include "Plate.h"
 #include <stdlib.h>
 #include <ctime>
-#define window_name "均衡化后直接二值化，呵呵"
+
 using namespace cv;
 using namespace std;
-
 
 typedef enum { back, object } entropy_state;
 float total;
@@ -180,14 +179,80 @@ void LeftEntropy(Mat img, Mat hist)   //这个函数是测试随着阈值不断增加，左侧也就
 
 }
 
+bool IsDimodal(double* HistGram)       // 检测直方图是否为双峰的
+{
+	// 对直方图的峰进行计数，只有峰数位2才为双峰 
+	int Count = 0;
+	for (int Y = 1; Y < 255; Y++)
+	{
+		if (HistGram[Y - 1] < HistGram[Y] && HistGram[Y + 1] < HistGram[Y])
+		{
+			Count++;
+			if (Count > 2) return false;
+		}
+	}
+	if (Count == 2)
+		return true;
+	else
+		return false;
+}
+
+
+int GetMinimumThreshold(int* HistGram)
+{
+	int Y, Iter = 0;
+	double *HistGramC = new double[256];           // 基于精度问题，一定要用浮点数来处理，否则得不到正确的结果
+	double *HistGramCC = new double[256];          // 求均值的过程会破坏前面的数据，因此需要两份数据
+	for (Y = 0; Y < 256; Y++)
+	{
+		HistGramC[Y] = HistGram[Y];
+		HistGramCC[Y] = HistGram[Y];
+	}
+
+	// 通过三点求均值来平滑直方图
+	while (IsDimodal(HistGramCC) == false)                                        // 判断是否已经是双峰的图像了      
+	{
+		HistGramCC[0] = (HistGramC[0] + HistGramC[0] + HistGramC[1]) / 3;                 // 第一点
+		for (Y = 1; Y < 255; Y++)
+			HistGramCC[Y] = (HistGramC[Y - 1] + HistGramC[Y] + HistGramC[Y + 1]) / 3;     // 中间的点
+		HistGramCC[255] = (HistGramC[254] + HistGramC[255] + HistGramC[255]) / 3;         // 最后一点
+		//System.Buffer.BlockCopy(HistGramCC, 0, HistGramC, 0, 256 * sizeof(double));
+		for (int i = 0; i < 256; i++)HistGramC[i] = HistGramCC[i];
+		Iter++;
+		if (Iter >= 1000) return -1;                                                   // 直方图无法平滑为双峰的，返回错误代码
+	}
+	// 阈值极为两峰之间的最小值 
+	bool Peakfound = false;
+	for (Y = 1; Y < 255; Y++)
+	{
+		if (HistGramCC[Y - 1] < HistGramCC[Y] && HistGramCC[Y + 1] < HistGramCC[Y]) Peakfound = true;
+		if (Peakfound == true && HistGramCC[Y - 1] >= HistGramCC[Y] && HistGramCC[Y + 1] >= HistGramCC[Y])
+			return Y - 1;
+	}
+	return -1;
+}
 int main(int argc, char *argv[])
 {
 	Mat src = imread("15.jpg", 0);
+	Mat img;
 	namedWindow("SRC", WINDOW_NORMAL);
 	imshow("SRC", src);
 	Mat hist = Hist(src).t();
-	MaxEntropy(src, hist);;
-	LeftEntropy(src, hist);
+	int HistGram[256];
+	int thr=0;
+	const float* hist_p = (float*)hist.ptr<float>(0);
+	for (int i = 0; i<hist.cols; i++) 
+	{
+		HistGram [i]= hist_p[i];
+	}
+
+	thr=GetMinimumThreshold(HistGram);
+	cout << thr << endl;
+	threshold(src, img, thr, 255, CV_THRESH_BINARY);
+	namedWindow("thresholdImg", WINDOW_NORMAL);
+	imshow("thresholdImg", img);
+	//MaxEntropy(src, hist);;
+	//LeftEntropy(src, hist);
 	waitKey();
 	return 1;
 }
