@@ -6,253 +6,181 @@
 //#include "Plate.h"
 #include <stdlib.h>
 #include <ctime>
+#include <vector>
+//以14为边长的正方形的邻域
+#define NEIGHBORHOOD 7
 
 using namespace cv;
 using namespace std;
 
-typedef enum { back, object } entropy_state;
-float total;
-//绘制hist;  
-Mat drawHist(Mat hist, int bins, int height, Scalar rgb)
-{
-	double maxVal = 0;
-	minMaxLoc(hist, 0, &maxVal, 0, 0);
-	int scale = 1;
-	Mat histImg = Mat::zeros(height, bins, CV_8UC3);
-	float *binVal = hist.ptr<float>(0);
-	for (int i = 0; i<bins; i++)
-	{
-		int intensity = cvRound(binVal[i] * height / maxVal);
-		rectangle(histImg, Point(i*scale, 0),
-			Point((i + 1)*scale, (intensity)), rgb, CV_FILLED);
-	}
-	flip(histImg, histImg, 0);
-	return histImg;
-}
-//计算直方图;  
-Mat Hist(const Mat& src)
-{
-	Mat hist;
-	int bins = 256;
-	int histSize[] = { bins };
-	float range[] = { 0,256 };
-	const float* ranges[] = { range };
-	int channels[] = { 0 };
-	calcHist(&src, 1, channels, Mat(), hist, 1, histSize, ranges, true, false);
-	Mat histImg = drawHist(hist, bins, 200, Scalar(255, 0, 0));
-	imshow("histRGB", histImg);
-	return hist;
-}
-//计算当前熵;  
-float calEntropy(const Mat& hist, int threshold)
-{
-	float total_back = 0, total_object = 0;
-	float entropy_back = 0, entropy_object = 0;
-	float entropy = 0;
-	int i = 0;
-	const float* hist_p = (float*)hist.ptr<float>(0);
-	total = 0;
-	for (i = 0; i<hist.cols; i++)  //total是总的点数
-	{
-		total += hist_p[i];
-	}
 
-	for (i = 0; i<threshold; i++) //total_back是直方图第i列前的点数
-	{
-		total_back += hist_p[i];
-	}
-	//cout << total_back << endl;
-	total_object = total - total_back;//total_object是第i列后的点数
 
-	//背景熵;  
-	for (i = 0; i<threshold; i++)
+//void fastIntegral(Mat srcImg)
+//{
+//	//Mat grayImg;
+//	//int lineIntegration[500][500];
+//	//int imageIntegration[500][500];
+//	//Mat pixAverage = Mat(srcImg.size(),CV_8UC1);
+//	//cvtColor(srcImg, grayImg, COLOR_RGB2GRAY);
+//	////得出每列像素的积分值
+//	//for (int i = 0; i < grayImg.cols; i++)
+//	//{
+//	//	for (int j = 0; j < grayImg.rows; j++) {
+//	//		if (j == 0) {
+//	//			lineIntegration[j][i] = grayImg.at<uchar>(j, i);
+//	//		}
+//	//		else {
+//	//			lineIntegration[j][i] = lineIntegration[j - 1][i] + grayImg.at<uchar>(j - 1, i);
+//	//		}
+//	//	}
+//	//}
+//
+//	////得出每个坐标点对应的图像积分值
+//	//for (int i = 0; i < grayImg.rows; i++) {
+//	//	for (int j = 0; j < grayImg.cols; j++) {
+//	//		if (j > 1) {
+//	//			imageIntegration[i][j] = imageIntegration[i][j - 1] + lineIntegration[i][j];
+//	//		}
+//	//		else {
+//	//			imageIntegration[i][0] = lineIntegration[i][0];
+//	//		}
+//	//		/*if (i > NEIGHBORHOOD || j > NEIGHBORHOOD)
+//	//		{
+//	//			if (i < 2 * NEIGHBORHOOD || j < 2 * NEIGHBORHOOD)
+//	//			{
+//	//				imageIntegration[i - 2 * NEIGHBORHOOD][j - 2 * NEIGHBORHOOD] = 0;
+//	//				imageIntegration[i - 2 * NEIGHBORHOOD][j] = 0;
+//	//				imageIntegration[i][j - 2 * NEIGHBORHOOD] = 0;
+//
+//	//			}
+//	//			pixAverage[i - NEIGHBORHOOD][j - NEIGHBORHOOD] = imageIntegration[i - 2 * NEIGHBORHOOD][j - 2 * NEIGHBORHOOD] + imageIntegration[i][j] - imageIntegration[i - 2 * NEIGHBORHOOD][j] - imageIntegration[i][j- 2 * NEIGHBORHOOD];
+//
+//	//		}*/
+//	//	}
+//	//}
+//	////计算各点邻域内像素的平均值
+//	//for (int i = 0; i < grayImg.rows; i++) {
+//	//	for (int j = 0; j < grayImg.cols; j++) {
+//	//		if (i <  NEIGHBORHOOD || j <  NEIGHBORHOOD)
+//	//		{
+//	//			pixAverage[i][j] = imageIntegration[i + NEIGHBORHOOD][j + NEIGHBORHOOD]/196;
+//	//		}
+//	//		else {
+//	//			pixAverage[i][j] = (imageIntegration[i - NEIGHBORHOOD][j - NEIGHBORHOOD] + imageIntegration[i + NEIGHBORHOOD][j + NEIGHBORHOOD] - imageIntegration[i - NEIGHBORHOOD][j] - imageIntegration[i][j - NEIGHBORHOOD])/196;
+//	//		}cout << pixAverage[100][100] << endl;
+//	//	}	
+//	//}	
+//
+// }
+
+void fastIntegral(Mat srcImg)
+{
+	/* pii 为行指针，可以直接将二维数组赋值给 pii*/
+	Mat lineIntegration = Mat(srcImg.size(), CV_32SC1);
+	Mat imageIntegration = Mat(srcImg.size(), CV_32SC1);
+	Mat pixAverage = Mat(srcImg.size(), CV_8UC1);
+	Mat grayImg;
+	cvtColor(srcImg, grayImg, COLOR_RGB2GRAY);
+	int i, j;
+	for (i = 0; i < srcImg.cols; i++)
 	{
-		//      if(hist_p[i]==0)  
-		//          continue;  
-		float percentage = hist_p[i] / total_back;
-		if (percentage >0)
+		for (j = 0; j < srcImg.rows; j++)
 		{
-			entropy_back += -percentage * logf(percentage); // 能量的定义公式 
-		}
-	}
-	//前景熵;  
-	for (i = threshold; i<hist.cols; i++)
-	{
-		//      if(hist_p[i]==0)  
-		//      {  
-		//          continue;  
-		//      }  
-		float percentage = hist_p[i] / total_object;
-		if (percentage >0)
-		{
-			entropy_object += -percentage * logf(percentage); // 能量的定义公式； 
-		}
-	}
-
-	entropy = entropy_object + entropy_back;
-	//entropy =entropy_object;  
-	return entropy;
-}
-
-float LeftBackEntropy(const Mat& hist, int threshold)  //这个函数是测试随着阈值不断增加，左侧也就是背景熵的变化
-{
-	float total_back = 0, total_object = 0;
-	float entropy_back = 0, entropy_object = 0;
-	float entropy = 0;
-	int i = 0;
-	const float* hist_p = (float*)hist.ptr<float>(0);
-	total = 0;
-	for (i = 0; i<hist.cols; i++)  //total是总的点数
-	{
-		total += hist_p[i];
-	}
-	for (i = 0; i<threshold; i++)
-	{
-		total_back += hist_p[i];
-	}
-	total_object = total - total_back;
-
-	//背景熵;  
-	for (i = 0; i<threshold; i++)
-	{
-		//      if(hist_p[i]==0)  
-		//          continue;  
-		float percentage = hist_p[i] / total_back;
-		if (percentage >0)
-		{
-			entropy_back += -percentage * logf(percentage); // 能量的定义公式 
+			if (j == 0) lineIntegration.at<int>(0, i) = 0 + grayImg.at<uchar>(0, i);
+			else lineIntegration.at<int>(j, i) = lineIntegration.at<int>(j - 1, i) + grayImg.at<uchar>(j, i);
+			/* 式( 2) image［i］［j］ 为原图像的二维数组*/
+			/* ps［i］［j］ 为每一列积分的二维数组*/
+			if (i == 0) imageIntegration.at<int>(j, 0) = 0 + lineIntegration.at<int>(j, 0);
+			else imageIntegration.at<int>(j, i) = imageIntegration.at<int>(j, i - 1) + lineIntegration.at<int>(j, i);
+			/* 式( 3) pii［i］［j］ 为积分图像的二维数组*/
 		}
 	}
 
-	entropy = entropy_back;
-	//entropy =entropy_object;  
-	return entropy;
-}
+	//for (int i = 0; i < srcImg.cols; i++)
+	//{
+	//	for (int j = 0; j < srcImg.rows; j++)
+	//	{
+	//		if (j - NEIGHBORHOOD < 0 && i - NEIGHBORHOOD > 0)
+	//		{
+	//			pixAverage.at<uchar>(j, i) = (imageIntegration.at<int>(j + NEIGHBORHOOD, i + NEIGHBORHOOD) - imageIntegration.at<int>(j + NEIGHBORHOOD, i - NEIGHBORHOOD))/196;
 
-
-
-void MaxEntropy(Mat img, Mat hist)
-{
-	total = sum(hist)[0];
-	float MaxEntropyValue = 0.0f, MaxEntropyThreshold = 0.0f;
-	float tmp;
-
-	cout << hist.size() << endl;
-
-	int num = 0;
-	for (int i = 0; i<hist.cols; i++)
+	//		}
+	//		else if (i - NEIGHBORHOOD < 0 && j - NEIGHBORHOOD > 0)
+	//		{
+	//			pixAverage.at<uchar>(j, i) = imageIntegration.at<int>(j + NEIGHBORHOOD, i + NEIGHBORHOOD) - imageIntegration.at<int>(j - NEIGHBORHOOD, i + NEIGHBORHOOD)/196;
+	//		}
+	//		else if (i - NEIGHBORHOOD < 0 || j - NEIGHBORHOOD > 0)
+	//		{
+	//			pixAverage.at<uchar>(j, i) = imageIntegration.at<int>(j + NEIGHBORHOOD, i + NEIGHBORHOOD)/196;
+	//		}
+	//		else
+	//		{
+	//			pixAverage.at<uchar>(j, i) = imageIntegration.at<int>(j - NEIGHBORHOOD, i - NEIGHBORHOOD) + imageIntegration.at<int>(j + NEIGHBORHOOD, i + NEIGHBORHOOD) - imageIntegration.at<int>(j + NEIGHBORHOOD, i - NEIGHBORHOOD) - imageIntegration.at<int>(j - NEIGHBORHOOD, i + NEIGHBORHOOD)/196;
+	//		}
+	//	}
+	//}
+	for (int i = NEIGHBORHOOD; i < srcImg.cols- NEIGHBORHOOD; i++)
 	{
-		tmp = calEntropy(hist, i);
-
-		if (tmp>MaxEntropyValue)
+		for (int j = NEIGHBORHOOD; j < srcImg.rows- NEIGHBORHOOD; j++)
 		{
-			MaxEntropyValue = tmp;
-			MaxEntropyThreshold = i;
+				pixAverage.at<uchar>(j, i) = (imageIntegration.at<int>(j - NEIGHBORHOOD, i - NEIGHBORHOOD) + imageIntegration.at<int>(j + NEIGHBORHOOD, i + NEIGHBORHOOD) - imageIntegration.at<int>(j + NEIGHBORHOOD, i - NEIGHBORHOOD) - imageIntegration.at<int>(j - NEIGHBORHOOD, i + NEIGHBORHOOD)) / 196;
 		}
 	}
-	threshold(img, img, MaxEntropyThreshold, 255, CV_THRESH_BINARY);
-	namedWindow("thresholdImg", WINDOW_NORMAL);
-	imshow("thresholdImg", img);
-	//imwrite("D:/thresholdImg.png",img);  
-	cout << MaxEntropyThreshold << endl;
-	cout << MaxEntropyValue << endl;
+	//for (int i = 0; i < srcImg.rows; i++)
+	//{
+	//	for (int j = 0; j < srcImg.rows; j++)
+	//	{
+	//		cout << (int)pixAverage.at<uchar>(i, j);
+	//	}
+	//	cout << endl;
+	//}
+	//namedWindow("dst1", WINDOW_NORMAL);
+	//imshow("dst1", pixAverage);
 }
+	
+#define ADJUST 0.4f//大亮小暗，越大花椒盐噪越少
+#define KERNEL 40  //均值内核大小，越大花椒盐越少,图像整体性越好
+//参数表:1、0.4,40 2、
 
-void LeftEntropy(Mat img, Mat hist)   //这个函数是测试随着阈值不断增加，左侧也就是背景熵的变化
-{
-
-	total = sum(hist)[0];
-	float MaxEntropyValue = 0.0, MaxEntropyThreshold = 0.0;
-	float tmp;
-	Mat SingleHist(hist.size(), CV_32FC1);//测试左边图像的熵值
-
-
-	for (int i = 0; i<hist.cols; i++)
-	{
-		tmp = LeftBackEntropy(hist, i);
-		SingleHist.at<float>(0, i) = tmp;//这是测试左边图像的熵值
-
-	}
-
-	Mat histImg = drawHist(SingleHist, 256, 200, Scalar(255, 0, 0));
-	imshow("SingleHist", histImg);
-
-}
-
-bool IsDimodal(double* HistGram)       // 检测直方图是否为双峰的
-{
-	// 对直方图的峰进行计数，只有峰数位2才为双峰 
-	int Count = 0;
-	for (int Y = 1; Y < 255; Y++)
-	{
-		if (HistGram[Y - 1] < HistGram[Y] && HistGram[Y + 1] < HistGram[Y])
-		{
-			Count++;
-			if (Count > 2) return false;
-		}
-	}
-	if (Count == 2)
-		return true;
-	else
-		return false;
-}
-
-
-int GetMinimumThreshold(int* HistGram)
-{
-	int Y, Iter = 0;
-	double *HistGramC = new double[256];           // 基于精度问题，一定要用浮点数来处理，否则得不到正确的结果
-	double *HistGramCC = new double[256];          // 求均值的过程会破坏前面的数据，因此需要两份数据
-	for (Y = 0; Y < 256; Y++)
-	{
-		HistGramC[Y] = HistGram[Y];
-		HistGramCC[Y] = HistGram[Y];
-	}
-
-	// 通过三点求均值来平滑直方图
-	while (IsDimodal(HistGramCC) == false)                                        // 判断是否已经是双峰的图像了      
-	{
-		HistGramCC[0] = (HistGramC[0] + HistGramC[0] + HistGramC[1]) / 3;                 // 第一点
-		for (Y = 1; Y < 255; Y++)
-			HistGramCC[Y] = (HistGramC[Y - 1] + HistGramC[Y] + HistGramC[Y + 1]) / 3;     // 中间的点
-		HistGramCC[255] = (HistGramC[254] + HistGramC[255] + HistGramC[255]) / 3;         // 最后一点
-		//System.Buffer.BlockCopy(HistGramCC, 0, HistGramC, 0, 256 * sizeof(double));
-		for (int i = 0; i < 256; i++)HistGramC[i] = HistGramCC[i];
-		Iter++;
-		if (Iter >= 1000) return -1;                                                   // 直方图无法平滑为双峰的，返回错误代码
-	}
-	// 阈值极为两峰之间的最小值 
-	bool Peakfound = false;
-	for (Y = 1; Y < 255; Y++)
-	{
-		if (HistGramCC[Y - 1] < HistGramCC[Y] && HistGramCC[Y + 1] < HistGramCC[Y]) Peakfound = true;
-		if (Peakfound == true && HistGramCC[Y - 1] >= HistGramCC[Y] && HistGramCC[Y + 1] >= HistGramCC[Y])
-			return Y - 1;
-	}
-	return -1;
-}
 int main(int argc, char *argv[])
 {
-	Mat src = imread("15.jpg", 0);
-	Mat img;
-	namedWindow("SRC", WINDOW_NORMAL);
-	imshow("SRC", src);
-	Mat hist = Hist(src).t();
-	int HistGram[256];
-	int thr=0;
-	const float* hist_p = (float*)hist.ptr<float>(0);
-	for (int i = 0; i<hist.cols; i++) 
-	{
-		HistGram [i]= hist_p[i];
-	}
+	int start = 0;
+	Mat src = imread("35.bmp");
+	Mat dstImg;
+	Mat grayImg;
+	Mat object = Mat(src.rows,src.cols,CV_32FC1);
+	//namedWindow("SRC", WINDOW_NORMAL);
+	//imshow("SRC", src);
+	cvtColor(src, grayImg, COLOR_RGB2GRAY);
+	start = clock();
+	blur(grayImg,dstImg,Size(KERNEL, KERNEL));
+	int time = clock() - start;
+	//namedWindow("dst", WINDOW_NORMAL);
+	//imshow("dst", dstImg);*/
+	cout << src.size << endl;
 
-	thr=GetMinimumThreshold(HistGram);
-	cout << thr << endl;
-	threshold(src, img, thr, 255, CV_THRESH_BINARY);
+	//取阈值
+	//二值化
+	for (int i = 0; i < src.rows; i++) {
+		uchar* grayImgPtr = grayImg.ptr<uchar>(i);
+		uchar* dstImgPtr = dstImg.ptr<uchar>(i);
+		int* objectPtr = object.ptr<int>(i);
+		for (int j = 0; j < src.cols; j++) {
+			objectPtr[j] = dstImgPtr[j] * (1.0f + ADJUST * ((sqrtf((float)fabs(grayImgPtr[j] - dstImgPtr[j]))) / dstImgPtr[j] - 1.0f));
+			//cout << (int)objectPtr[j]<<" ";
+			if (objectPtr[j] > 254)objectPtr[j] = 255;
+			if (objectPtr[j] < 0)objectPtr[j] =0;
+	
+			if (grayImgPtr[j] > objectPtr[j])dstImgPtr[j] = 255;
+			else dstImgPtr[j] = 0;
+		}
+		//cout << endl;
+	}
+	//fastIntegral(src);
+	cout << time << endl;
 	namedWindow("thresholdImg", WINDOW_NORMAL);
-	imshow("thresholdImg", img);
-	//MaxEntropy(src, hist);;
-	//LeftEntropy(src, hist);
+	imshow("thresholdImg", dstImg);
 	waitKey();
 	return 1;
 }
+
