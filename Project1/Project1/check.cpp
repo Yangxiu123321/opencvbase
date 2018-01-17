@@ -140,6 +140,7 @@ void fastIntegral(Mat srcImg)
 	
 #define ADJUST 0.4f//大亮小暗，越大花椒盐噪越少
 #define KERNEL 40  //均值内核大小，越大花椒盐越少,图像整体性越好
+#define KENEL_2 KERNEL/2
 //参数表:1、0.4,40 2、
 
 int main(int argc, char *argv[])
@@ -148,34 +149,53 @@ int main(int argc, char *argv[])
 	Mat src = imread("35.bmp");
 	Mat dstImg;
 	Mat grayImg;
-	Mat object = Mat(src.rows,src.cols,CV_32FC1);
+	Mat integralImg;
+	Mat object = Mat(src.rows, src.cols, CV_32F);
+	Mat imageIntegralNorm;
 	//namedWindow("SRC", WINDOW_NORMAL);
 	//imshow("SRC", src);
 	cvtColor(src, grayImg, COLOR_RGB2GRAY);
+	grayImg.copyTo(dstImg);
 	start = clock();
-	blur(grayImg,dstImg,Size(KERNEL, KERNEL));
-	int time = clock() - start;
-	//namedWindow("dst", WINDOW_NORMAL);
-	//imshow("dst", dstImg);*/
-	cout << src.size << endl;
-
-	//取阈值
-	//二值化
+	//blur(grayImg,dstImg,Size(KERNEL, KERNEL));
+	//对图像积分
+	integral(grayImg, integralImg, CV_32S);
+	//normalize(integralImg, integralImg, 0, 255, CV_MINMAX);
+	//convertScaleAbs(integralImg, imageIntegralNorm);
+	//imshow("nor", imageIntegralNorm);
+	for (int i = KENEL_2; i < src.rows- KENEL_2; i++) {
+		uchar* dstImgPtr = dstImg.ptr<uchar>(i);
+		int* integralImgUpPtr = integralImg.ptr<int>(i- KENEL_2);
+		int* integralImgDownPtr = integralImg.ptr<int>(i+ KENEL_2);
+		for (int j = KENEL_2; j < src.cols- KENEL_2; j++) {
+			dstImgPtr[j] = (integralImgUpPtr[j - KENEL_2] + integralImgDownPtr[j + KENEL_2] - integralImgUpPtr[j + KENEL_2] - integralImgDownPtr[j - KENEL_2]) / (KERNEL*KERNEL);
+			//cout << integralImgDownPtr[j]<<" ";
+			//cout << (int)dstImgPtr[j] << " ";
+			//waitKey();
+			if (dstImgPtr[j] > 254)dstImgPtr[j] = 255;
+			if (dstImgPtr[j] < 0)dstImgPtr[j] = 0;
+		}
+		//cout << endl;
+	}
+	namedWindow("dst", 1);
+	imshow("dst",dstImg);
 	for (int i = 0; i < src.rows; i++) {
 		uchar* grayImgPtr = grayImg.ptr<uchar>(i);
 		uchar* dstImgPtr = dstImg.ptr<uchar>(i);
 		int* objectPtr = object.ptr<int>(i);
 		for (int j = 0; j < src.cols; j++) {
 			objectPtr[j] = dstImgPtr[j] * (1.0f + ADJUST * ((sqrtf((float)fabs(grayImgPtr[j] - dstImgPtr[j]))) / dstImgPtr[j] - 1.0f));
-			//cout << (int)objectPtr[j]<<" ";
 			if (objectPtr[j] > 254)objectPtr[j] = 255;
-			if (objectPtr[j] < 0)objectPtr[j] =0;
-	
+			if (objectPtr[j] < 0)objectPtr[j] = 0;
+
 			if (grayImgPtr[j] > objectPtr[j])dstImgPtr[j] = 255;
 			else dstImgPtr[j] = 0;
 		}
-		//cout << endl;
 	}
+	int time = clock() - start;
+	//namedWindow("dst", WINDOW_NORMAL);
+	//imshow("dst", dstImg);*/
+	cout << src.size << endl;
 	//fastIntegral(src);
 	cout << time << endl;
 	namedWindow("thresholdImg", WINDOW_NORMAL);
