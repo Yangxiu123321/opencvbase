@@ -1,193 +1,69 @@
-#include <opencv2\opencv.hpp>
-#include<opencv2\imgproc\imgproc.hpp>
-#include <iostream>
-#include <string>
-#include <windows.h>
-//#include "Plate.h"
+#include "opencv2/imgproc/imgproc.hpp"
+#include "opencv2/highgui/highgui.hpp"
 #include <stdlib.h>
-#include <ctime>
-#define window_name "均衡化后直接二值化，呵呵"
+#include <stdio.h>
+
 using namespace cv;
-using namespace std;
 
-
-typedef enum { back, object } entropy_state;
-float total;
-//绘制hist;  
-Mat drawHist(Mat hist, int bins, int height, Scalar rgb)
+/** @function main */
+int main(int argc, char** argv)
 {
-	double maxVal = 0;
-	minMaxLoc(hist, 0, &maxVal, 0, 0);
+
+	Mat src, src_gray;
+	Mat grad;
+	char window_name[] ="Sobel Demo - Simple Edge Detector";
+	char windows_dx[] = "dx";
+	char windows_dy[] = "dy";
 	int scale = 1;
-	Mat histImg = Mat::zeros(height, bins, CV_8UC3);
-	float *binVal = hist.ptr<float>(0);
-	for (int i = 0; i<bins; i++)
+	int delta = 0;
+	int ddepth = CV_16S;
+
+	int c;
+
+	/// 装载图像
+	src = imread("1.jpg");
+
+	if (!src.data)
 	{
-		int intensity = cvRound(binVal[i] * height / maxVal);
-		rectangle(histImg, Point(i*scale, 0),
-			Point((i + 1)*scale, (intensity)), rgb, CV_FILLED);
-	}
-	flip(histImg, histImg, 0);
-	return histImg;
-}
-//计算直方图;  
-Mat Hist(const Mat& src)
-{
-	Mat hist;
-	int bins = 256;
-	int histSize[] = { bins };
-	float range[] = { 0,256 };
-	const float* ranges[] = { range };
-	int channels[] = { 0 };
-	calcHist(&src, 1, channels, Mat(), hist, 1, histSize, ranges, true, false);
-	Mat histImg = drawHist(hist, bins, 200, Scalar(255, 0, 0));
-	imshow("histRGB", histImg);
-	return hist;
-}
-//计算当前熵;  
-float calEntropy(const Mat& hist, int threshold)
-{
-	float total_back = 0, total_object = 0;
-	float entropy_back = 0, entropy_object = 0;
-	float entropy = 0;
-	int i = 0;
-	const float* hist_p = (float*)hist.ptr<float>(0);
-	total = 0;
-	for (i = 0; i<hist.cols; i++)  //total是总的点数
-	{
-		total += hist_p[i];
+		return -1;
 	}
 
-	for (i = 0; i<threshold; i++) //total_back是直方图第i列前的点数
-	{
-		total_back += hist_p[i];
-	}
-	//cout << total_back << endl;
-	total_object = total - total_back;//total_object是第i列后的点数
+	GaussianBlur(src, src, Size(3, 3), 0, 0, BORDER_DEFAULT);
 
-	//背景熵;  
-	for (i = 0; i<threshold; i++)
-	{
-		//      if(hist_p[i]==0)  
-		//          continue;  
-		float percentage = hist_p[i] / total_back;
-		if (percentage >0)
-		{
-			entropy_back += -percentage * logf(percentage); // 能量的定义公式 
-		}
-	}
-	//前景熵;  
-	for (i = threshold; i<hist.cols; i++)
-	{
-		//      if(hist_p[i]==0)  
-		//      {  
-		//          continue;  
-		//      }  
-		float percentage = hist_p[i] / total_object;
-		if (percentage >0)
-		{
-			entropy_object += -percentage * logf(percentage); // 能量的定义公式； 
-		}
-	}
+	/// 转换为灰度图
+	cvtColor(src, src_gray, CV_RGB2GRAY);
 
-	entropy = entropy_object + entropy_back;
-	//entropy =entropy_object;  
-	return entropy;
-}
+	/// 创建显示窗口
+	namedWindow(window_name, CV_WINDOW_NORMAL);
 
-float LeftBackEntropy(const Mat& hist, int threshold)  //这个函数是测试随着阈值不断增加，左侧也就是背景熵的变化
-{
-	float total_back = 0, total_object = 0;
-	float entropy_back = 0, entropy_object = 0;
-	float entropy = 0;
-	int i = 0;
-	const float* hist_p = (float*)hist.ptr<float>(0);
-	total = 0;
-	for (i = 0; i<hist.cols; i++)  //total是总的点数
-	{
-		total += hist_p[i];
-	}
-	for (i = 0; i<threshold; i++)
-	{
-		total_back += hist_p[i];
-	}
-	total_object = total - total_back;
+	/// 创建 grad_x 和 grad_y 矩阵
+	Mat grad_x, grad_y;
+	Mat abs_grad_x, abs_grad_y;
 
-	//背景熵;  
-	for (i = 0; i<threshold; i++)
-	{
-		//      if(hist_p[i]==0)  
-		//          continue;  
-		float percentage = hist_p[i] / total_back;
-		if (percentage >0)
-		{
-			entropy_back += -percentage * logf(percentage); // 能量的定义公式 
-		}
-	}
+	/// 求 X方向梯度
+	//Scharr( src_gray, grad_x, ddepth, 1, 0, scale, delta, BORDER_DEFAULT );
+	Sobel(src_gray, grad_x, ddepth, 1, 0, 3, scale, delta, BORDER_DEFAULT);
+	convertScaleAbs(grad_x, abs_grad_x);
+	namedWindow(windows_dx, CV_WINDOW_NORMAL);
+	imshow(windows_dx, abs_grad_x);
 
-	entropy = entropy_back;
-	//entropy =entropy_object;  
-	return entropy;
-}
+	/// 求Y方向梯度
+	//Scharr( src_gray, grad_y, ddepth, 0, 1, scale, delta, BORDER_DEFAULT );
+	Sobel(src_gray, grad_y, ddepth, 0, 1, 3, scale, delta, BORDER_DEFAULT);
 
+	convertScaleAbs(grad_y, abs_grad_y);
+	printf("2:%d", abs_grad_y.at<uchar>(100, 100));
+	printf("22:%d", abs_grad_y.at<uchar>(100, 101));
 
+	namedWindow(windows_dy, CV_WINDOW_NORMAL);
+	imshow(windows_dy, abs_grad_y);
 
-void MaxEntropy(Mat img, Mat hist)
-{
-	total = sum(hist)[0];
-	float MaxEntropyValue = 0.0f, MaxEntropyThreshold = 0.0f;
-	float tmp;
+	/// 合并梯度(近似)
+	addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0, grad);
 
-	cout << hist.size() << endl;
+	imshow(window_name, grad);
 
-	int num = 0;
-	for (int i = 0; i<hist.cols; i++)
-	{
-		tmp = calEntropy(hist, i);
+	waitKey(0);
 
-		if (tmp>MaxEntropyValue)
-		{
-			MaxEntropyValue = tmp;
-			MaxEntropyThreshold = i;
-		}
-	}
-	threshold(img, img, MaxEntropyThreshold, 255, CV_THRESH_BINARY);
-	namedWindow("thresholdImg", WINDOW_NORMAL);
-	imshow("thresholdImg", img);
-	//imwrite("D:/thresholdImg.png",img);  
-	cout << MaxEntropyThreshold << endl;
-	cout << MaxEntropyValue << endl;
-}
-
-void LeftEntropy(Mat img, Mat hist)   //这个函数是测试随着阈值不断增加，左侧也就是背景熵的变化
-{
-
-	total = sum(hist)[0];
-	float MaxEntropyValue = 0.0, MaxEntropyThreshold = 0.0;
-	float tmp;
-	Mat SingleHist(hist.size(), CV_32FC1);//测试左边图像的熵值
-
-
-	for (int i = 0; i<hist.cols; i++)
-	{
-		tmp = LeftBackEntropy(hist, i);
-		SingleHist.at<float>(0, i) = tmp;//这是测试左边图像的熵值
-
-	}
-
-	Mat histImg = drawHist(SingleHist, 256, 200, Scalar(255, 0, 0));
-	imshow("SingleHist", histImg);
-
-}
-
-int main(int argc, char *argv[])
-{
-	Mat src = imread("15.jpg", 0);
-	namedWindow("SRC", WINDOW_NORMAL);
-	imshow("SRC", src);
-	Mat hist = Hist(src).t();
-	MaxEntropy(src, hist);;
-	LeftEntropy(src, hist);
-	waitKey();
-	return 1;
+	return 0;
 }
