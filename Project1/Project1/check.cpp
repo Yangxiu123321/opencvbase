@@ -8,30 +8,55 @@ using namespace std;
 
 int main()
 {
-	Mat srcImg = imread("41.jpg",0);
-	namedWindow("画线图",0);
-	namedWindow("边缘检测",0);
-	vector<Vec2f> lines;
-	Mat dstImg;
-	Canny(srcImg,dstImg,50,200,3);
-	imshow("边缘检测",dstImg);
+	Mat srcImg = imread("judge.bmp",0);
+	Mat debugImg = srcImg.clone();
+	namedWindow("原图",1);
+	namedWindow("画线图",1);
+	namedWindow("边缘检测",1);
+	imshow("原图",srcImg);
 
-	HoughLines(dstImg, lines, 1, CV_PI / 180,100 );
-	Mat cdst = srcImg.clone();
+	Point boundaryPoint[4];
 
-	for (size_t i = 0; i < lines.size(); i++)//将求得的线条画出来
+	Point startPoint = Point(8, 170);
+	Point endPoint = Point(570,256);
+
+	LineIterator rightTimingPatternIt(srcImg, startPoint, endPoint);
+	uchar crtPixel = 255;
+	vector<int> timingCounter;
+	int crtTimingCounter = 0;
+	int timingBuffer = 0;
+
+	//用线迭代器进行迭代，将每一像素段的像素数量进行存储
+	for (int x = 0; x < rightTimingPatternIt.count; x++)
 	{
-		float rho = lines[i][0], theta = lines[i][1];
-		Point pt1, pt2;
-		double a = cos(theta), b = sin(theta);
-		double x0 = a * rho, y0 = b * rho;
-		pt1.x = cvRound(x0 + 1000 * (-b));
-		pt1.y = cvRound(y0 + 1000 * (a));
-		pt2.x = cvRound(x0 - 1000 * (-b));
-		pt2.y = cvRound(y0 - 1000 * (a));
-		line(cdst, pt1, pt2, Scalar(0, 0, 255), 3, CV_AA);
+		if (abs((uchar)**rightTimingPatternIt - crtPixel) <= 127)
+		{
+			crtTimingCounter++;
+			timingBuffer = 0;
+		}
+		else
+		{
+			crtTimingCounter++;
+			timingBuffer++;
+
+			if (timingBuffer >= 3)
+			{
+				timingCounter.push_back(crtTimingCounter - timingBuffer);
+				crtTimingCounter = timingBuffer;
+				crtPixel = abs(crtPixel - 255);
+				timingBuffer = 0;
+				if (timingCounter.size() == 5)
+				{
+					break;
+				}
+
+				//赋值边界点
+				boundaryPoint[timingCounter.size() - 1] = rightTimingPatternIt.pos();
+				circle(debugImg, rightTimingPatternIt.pos(),2,Scalar(255,0,0));
+			}
+		}
+		rightTimingPatternIt++;
 	}
-	cout << A << endl;
-	imshow("画线图", cdst);
+
 	waitKey(0);
 }
