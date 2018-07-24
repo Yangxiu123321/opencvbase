@@ -1,62 +1,111 @@
-#include <opencv2/opencv.hpp>  
-#include <opencv2/highgui/highgui.hpp>  
-#include <iostream>  
+#include "opencv2/video/tracking.hpp"
+#include "opencv2/highgui.hpp"
+
+#include <stdio.h>
 
 using namespace cv;
-using namespace std;
-//41.jpg
 
-int main()
+// 计算点的坐标
+static inline Point calcPoint(Point2f center, double R, double angle)
 {
-	Mat srcImg = imread("judge.bmp",0);
-	Mat debugImg = srcImg.clone();
-	namedWindow("原图",1);
-	namedWindow("画线图",1);
-	namedWindow("边缘检测",1);
-	imshow("原图",srcImg);
+	return center + Point2f((float)cos(angle), (float)-sin(angle))*(float)R;
+}
 
-	Point boundaryPoint[4];
+static void help()
+{
+	printf("\nExample of c calls to OpenCV's Kalman filter.\n"
+		"   Tracking of rotating point.\n"
+		"   Rotation speed is constant.\n"
+		"   Both state and measurements vectors are 1D (a point angle),\n"
+		"   Measurement is the real point angle + gaussian noise.\n"
+		"   The real and the estimated points are connected with yellow line segment,\n"
+		"   the real and the measured points are connected with red line segment.\n"
+		"   (if Kalman filter works correctly,\n"
+		"    the yellow segment should be shorter than the red one).\n"
+		"\n"
+		"   Pressing any key (except ESC) will reset the tracking with a different speed.\n"
+		"   Pressing ESC will stop the program.\n"
+	);
+}
 
-	Point startPoint = Point(8, 170);
-	Point endPoint = Point(570,256);
+int main(int, char**)
+{
+	help();
+	Mat img(500, 500, CV_8UC3);
+	KalmanFilter KF(2, 1, 0);
+	// 定义了一个二维数组，一个存储角度，一个存储角度的变化量(角速度)
+	Mat state(2, 1, CV_32F); /* (phi, delta_phi) */
+	// 
+	Mat processNoise(2, 1, CV_32F);
+	Mat measurement = Mat::zeros(1, 1, CV_32F);
+	char code = (char)-1;
 
-	LineIterator rightTimingPatternIt(srcImg, startPoint, endPoint);
-	uchar crtPixel = 255;
-	vector<int> timingCounter;
-	int crtTimingCounter = 0;
-	int timingBuffer = 0;
-
-	//用线迭代器进行迭代，将每一像素段的像素数量进行存储
-	for (int x = 0; x < rightTimingPatternIt.count; x++)
+	for (;;)
 	{
-		if (abs((uchar)**rightTimingPatternIt - crtPixel) <= 127)
+		// 产生均值为0，标准差0.1的二维高斯列向量
+		randn(state, Scalar::all(0), Scalar::all(0.1));
+		// 产生转移矩阵A[1,1;0,1]
+		KF.transitionMatrix = (Mat_<float>(2, 2) << 1, 1, 0, 1);
+		// 函数setIdentity是给参数矩阵对角线赋相同值，默认对角线值值为1
+		setIdentity(KF.measurementMatrix);
+		// 系统过程噪声方差矩阵
+		setIdentity(KF.processNoiseCov, Scalar::all(1e-5));
+		// 测量过程噪声方差矩阵(R)
+		setIdentity(KF.measurementNoiseCov, Scalar::all(1e-1));
+		// 后验错误估计协方差矩阵
+		setIdentity(KF.errorCovPost, Scalar::all(1));
+		// statePost为校正状态，其本质就是前一时刻的状态
+		randn(KF.statePost, Scalar::all(0), Scalar::all(0.1));
+		for (;;)
 		{
-			crtTimingCounter++;
-			timingBuffer = 0;
-		}
-		else
-		{
-			crtTimingCounter++;
-			timingBuffer++;
+			Point2f center(img.cols*0.5f, img.rows*0.5f);
+			float R = img.cols / 3.f;
+			double stateAngle = state.at<float>(0);
+			// 计算对应的坐标
+			Point statePt = calcPoint(center, R, stateAngle);
 
-			if (timingBuffer >= 3)
-			{
-				timingCounter.push_back(crtTimingCounter - timingBuffer);
-				crtTimingCounter = timingBuffer;
-				crtPixel = abs(crtPixel - 255);
-				timingBuffer = 0;
-				if (timingCounter.size() == 5)
-				{
-					break;
-				}
+			// 模型预测
+			Mat prediction = KF.predict();
+			double predictAngle = prediction.at<float>(0);
+			Point predictPt = calcPoint(center, R, predictAngle);
 
-				//赋值边界点
-				boundaryPoint[timingCounter.size() - 1] = rightTimingPatternIt.pos();
-				circle(debugImg, rightTimingPatternIt.pos(),2,Scalar(255,0,0));
-			}
+			randn(measurement, Scalar::all(0), Scalar::all(KF.measurementNoiseCov.at<float>(0)));
+
+			// generate measurement
+			measurement += KF.measurementMatrix*state;
+
+			double measAngle = measurement.at<float>(0);
+			Point measPt = calcPoint(center, R, measAngle);
+
+			// plot points
+#define drawCross( center, color, d )                                        \
+                line( img, Point( center.x - d, center.y - d ),                          \
+                             Point( center.x + d, center.y + d ), color, 1, LINE_AA, 0); \
+                line( img, Point( center.x + d, center.y - d ),                          \
+                             Point( center.x - d, center.y + d ), color, 1, LINE_AA, 0 )
+
+			img = Scalar::all(0);
+			drawCross(statePt, Scalar(255, 255, 255), 3);
+			drawCross(measPt, Scalar(0, 0, 255), 3);
+			drawCross(predictPt, Scalar(0, 255, 0), 3);
+			line(img, statePt, measPt, Scalar(0, 0, 255), 3, LINE_AA, 0);
+			line(img, statePt, predictPt, Scalar(0, 255, 255), 3, LINE_AA, 0);
+
+			if (theRNG().uniform(0, 4) != 0)
+				KF.correct(measurement);
+
+			randn(processNoise, Scalar(0), Scalar::all(sqrt(KF.processNoiseCov.at<float>(0, 0))));
+			state = KF.transitionMatrix*state + processNoise;
+
+			imshow("Kalman", img);
+			code = (char)waitKey(100);
+
+			if (code > 0)
+				break;
 		}
-		rightTimingPatternIt++;
+		if (code == 27 || code == 'q' || code == 'Q')
+			break;
 	}
 
-	waitKey(0);
+	return 0;
 }
