@@ -1,106 +1,98 @@
-#include "opencv2/opencv.hpp"  
-#include <vector>  
-
-
-using namespace cv;
+#include "opencv2/imgproc.hpp"
+#include "opencv2/videoio.hpp"
+#include "opencv2/highgui.hpp"
+#include "opencv2/video/background_segm.hpp"
+#include <stdio.h>
+#include <string>
 using namespace std;
-
-const int Train = 100;
-int main(int argc, char *argv[])
+using namespace cv;
+static void help()
 {
-	Ptr<BackgroundSubtractorMOG2> mog = createBackgroundSubtractorMOG2(100, 25, false);
-	//bgsubtractor->setVarThreshold(20);
-	Mat foreGround;
-	Mat backGround;
-	int trainCounter = 0;
-	bool dynamicDetect = true;
-
-	namedWindow("src");
-	namedWindow("preGround");
-	namedWindow("foreground");
-
-	VideoCapture cap(0);//打开默认的摄像头    
+	printf("\n"
+		"This program demonstrated a simple method of connected components clean up of background subtraction\n"
+		"When the program starts, it begins learning the background.\n"
+		"You can toggle background learning on and off by hitting the space bar.\n"
+		"Call\n"
+		"./segment_objects [video file, else it reads camera 0]\n\n");
+}
+static void refineSegments(const Mat& img, Mat& mask, Mat& dst)
+{
+	int niters = 3;
+	vector<vector<Point> > contours;
+	vector<Vec4i> hierarchy;
+	Mat temp;
+	dilate(mask, temp, Mat(), Point(-1, -1), niters);
+	erode(temp, temp, Mat(), Point(-1, -1), niters * 2);
+	dilate(temp, temp, Mat(), Point(-1, -1), niters);
+	findContours(temp, contours, hierarchy, RETR_CCOMP, CHAIN_APPROX_SIMPLE);
+	dst = Mat::zeros(img.size(), CV_8UC3);
+	if (contours.size() == 0)
+		return;
+	// iterate through all the top-level contours,
+	// draw each connected component with its own random color
+	int idx = 0, largestComp = 0;
+	double maxArea = 0;
+	for (; idx >= 0; idx = hierarchy[idx][0])
+	{
+		const vector<Point>& c = contours[idx];
+		double area = fabs(contourArea(Mat(c)));
+		if (area > maxArea)
+		{
+			maxArea = area;
+			largestComp = idx;
+		}
+	}
+	Scalar color(0, 0, 255);
+	drawContours(dst, contours, largestComp, color, FILLED, LINE_8, hierarchy);
+}
+int main(int argc, char** argv)
+{
+	VideoCapture cap;
+	bool update_bg_model = true;
+	CommandLineParser parser(argc, argv, "{help h||}{@input||}");
+	if (parser.has("help"))
+	{
+		help();
+		return 0;
+	}
+	string input = parser.get<std::string>("@input");
+	if (input.empty())
+		cap.open(0);
+	else
+		cap.open(input);
 	if (!cap.isOpened())
 	{
+		printf("\nCan not open camera or video file\n");
 		return -1;
 	}
-	Mat src;
-	bool stop = false;
-	while (!stop)
+	Mat tmp_frame, bgmask, out_frame;
+	cap >> tmp_frame;
+	if (tmp_frame.empty())
 	{
-		cap >> src;
-
-		if (dynamicDetect)
+		printf("can not read data from the video source\n");
+		return -1;
+	}
+	namedWindow("video", 1);
+	namedWindow("segmented", 1);
+	// 构造指向BackgroundSubtractorMOG2的指针
+	Ptr<BackgroundSubtractorMOG2> bgsubtractor = createBackgroundSubtractorMOG2();
+	bgsubtractor->setVarThreshold(10);
+	for (;;)
+	{
+		cap >> tmp_frame;
+		if (tmp_frame.empty())
+			break;
+		bgsubtractor->apply(tmp_frame, bgmask, update_bg_model ? -1 : 0);
+		refineSegments(tmp_frame, bgmask, out_frame);
+		imshow("video", tmp_frame);
+		imshow("segmented", out_frame);
+		char keycode = (char)waitKey(30);
+		if (keycode == 27)
+			break;
+		if (keycode == ' ')
 		{
-			// 获得前景的二值图像
-			mog->apply(src, foreGround, 0.005);
-			imshow("preGround", foreGround);
-			//图像处理过程
-			medianBlur(foreGround, foreGround, 3);
-			dilate(foreGround, foreGround, Mat(), Point(-1, -1), 3);
-			erode(foreGround, foreGround, Mat(), Point(-1, -1), 6);
-			dilate(foreGround, foreGround, Mat(), Point(-1, -1), 3);
-			imshow("foreground", foreGround);
-			if (trainCounter < Train)//训练期间所得结果为不准确结果，不应作为后续
-			{
-				Mat findc;
-				foreGround.copyTo(findc);
-				vector<vector<Point>> contours;
-				cv::findContours(findc, contours, RETR_EXTERNAL, CHAIN_APPROX_NONE);
-
-				//targets.clear();
-				const int maxArea = 800;
-				size_t s = contours.size();
-				for (size_t i = 0; i < s; i++)
-				{
-					double area = abs(contourArea(contours[i]));
-					if (area > maxArea)
-					{
-						Rect mr = boundingRect(Mat(contours[i]));
-						rectangle(src, mr, Scalar(0, 0, 255), 2, 8, 0);
-						//targets.push_back(mr);
-					}
-				}
-				//string text;					
-				char text[50];
-				sprintf_s(text, "background training -%d- ...", trainCounter);
-				putText(src, text, Point(50, 50), 3, 1, Scalar(0, 255, 255), 2, 8, false);
-				//delete[] text;
-
-			}
-			else
-			{
-				//detects.clear();
-				Mat findc;
-				foreGround.copyTo(findc);
-				vector<vector<Point>> contours;
-				cv::findContours(findc, contours, RETR_EXTERNAL, CHAIN_APPROX_NONE);
-				const int maxArea = 500;
-				size_t s = contours.size();
-				RNG rng;
-					for (size_t i = 0;i < s;i++)
-					{
-						double area = abs(contourArea(contours[i]));
-						if (area > maxArea)
-						{
-							Scalar sca_color = Scalar(rng.uniform(0, 256), rng.uniform(0, 256), rng.uniform(0, 256));
-							Rect mr = boundingRect(Mat(contours[i]));
-							rectangle(src, mr, sca_color, 2, 8, 0);
-
-							//可以对动态目标进行相应操作
-
-						}
-					}
-
-			}
-			trainCounter++;
-		}
-
-		imshow("src", src);
-
-		if (waitKey(30) == 27) //Esc键退出    
-		{
-			stop = true;
+			update_bg_model = !update_bg_model;
+			printf("Learn background is in state = %d\n", update_bg_model);
 		}
 	}
 	return 0;
