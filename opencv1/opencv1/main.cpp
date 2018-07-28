@@ -272,6 +272,44 @@ void icvprLabelColor(const cv::Mat& _labelImg, cv::Mat& _colorLabelImg)
 
 }
 
+void findGravityPoint(cv::InputArray _src, cv::OutputArray _dst)
+{
+	Mat labelSrc;
+	Mat gravityImg;
+
+	map<int, vector<Point>> gravityPoint;
+
+	_src.copyTo(labelSrc);
+	_src.copyTo(_dst);
+
+	int rowNumber = labelSrc.rows;
+	int colNumber = labelSrc.cols;
+	for (int i = 0; i < rowNumber; i++)
+	{
+		uchar *Ptr = labelSrc.ptr<uchar>(i);
+		for (int j = 0; j < colNumber; j++)
+		{
+			if (Ptr[j] > 0)
+			{
+				gravityPoint[Ptr[j]].push_back(Point(i, j));
+			}
+		}
+	}
+	// º∆À„÷ÿ–ƒ
+	map<int, vector<Point>>::iterator iter;
+	for (iter = gravityPoint.begin(); iter != gravityPoint.end(); iter++)
+	{
+		int size = iter->second.size();
+		for(int index = 0;index < size;index++)
+		{
+			iter->second[index]
+				
+		}
+	}
+
+
+
+}
 
 
 int main() {
@@ -317,12 +355,11 @@ int main() {
 	myConnectedComponentLabelingTwoPass(thresh, label);
 
 
+	Mat gravityPoint;
 
-	// color labeling
 
-	Mat color_label;
 
-	icvprLabelColor(label, color_label);
+   // find GrayPoint
 
 
 
@@ -334,7 +371,6 @@ int main() {
 
 	imshow("label", label);
 
-	imshow("color_label", color_label);
 
 	waitKey(0);
 
