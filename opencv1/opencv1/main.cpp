@@ -1,99 +1,346 @@
-#include "opencv2/imgproc.hpp"
-#include "opencv2/videoio.hpp"
-#include "opencv2/highgui.hpp"
-#include "opencv2/video/background_segm.hpp"
-#include <stdio.h>
-#include <string>
+
+#include "opencv2/imgproc/imgproc.hpp"
+
+#include "opencv2/highgui/highgui.hpp"
+
+#include <map>
+
+#include <cassert>
+
+#include <iostream>
+
 using namespace std;
+
 using namespace cv;
-static void help()
-{
-	printf("\n"
-		"This program demonstrated a simple method of connected components clean up of background subtraction\n"
-		"When the program starts, it begins learning the background.\n"
-		"You can toggle background learning on and off by hitting the space bar.\n"
-		"Call\n"
-		"./segment_objects [video file, else it reads camera 0]\n\n");
+
+
+
+const int max_size = 1000;
+
+int parent[max_size] = { 0 };
+
+
+
+// 找到label x的根节点
+
+int find(int x, int parent[]) {
+
+	assert(x < max_size);
+
+	int i = x;
+
+	while (0 != parent[i])
+
+		i = parent[i];
+
+	return i;
+
 }
-static void refineSegments(const Mat& img, Mat& mask, Mat& dst)
+
+
+
+// 将label x 和 label y合并到同一个连通域
+
+void union_label(int x, int y, int parent[]) {
+
+	assert(x < max_size && y < max_size);
+
+	int i = x;
+
+	int j = y;
+
+	while (0 != parent[i])
+
+		i = parent[i];
+
+	while (0 != parent[j])
+
+		j = parent[j];
+
+	if (i != j)
+
+		parent[i] = j;
+
+}
+
+
+void myConnectedComponentLabelingTwoPass(
+
+	Mat& binary, Mat& label) {
+    // 检测CV_Assert中的内容是否为真，如果是真的，stderr 打印一条出错信息，然后通过调用 abort 来终止程序运行。
+	CV_Assert(binary.data);	
+	CV_Assert(binary.depth() == CV_8U);
+	CV_Assert(binary.channels() == 1);
+
+
+
+	// create label image
+
+	label.create(binary.size(), binary.type());
+
+
+
+	// initialize label value
+
+	int label_value = 0;
+
+
+
+	// first pass
+	// 注意，得从第二行开始，第二列开始。
+	for (int y = 1; y < binary.rows; y++) {
+
+		uchar* p_binary = binary.ptr<uchar>(y);
+
+		uchar* p_binary_up = binary.ptr<uchar>(y - 1);
+
+		uchar* p_label = label.ptr<uchar>(y);
+
+		uchar* p_label_up = label.ptr<uchar>(y - 1);
+
+		for (int x = 0; x < label.cols; x++) {
+
+			p_label[x] = 0;
+
+		}
+
+		for (int x = 1; x < binary.cols; x++) 
+		{
+			if (255 == p_binary[x])
+			{
+
+				if (0 == p_binary[x - 1] && 0 == p_binary_up[x]) {
+
+					label_value += 1;
+
+					p_label[x] = (int)label_value;
+
+				}
+				else if (255 == p_binary[x - 1] && 0 == p_binary_up[x])
+				{
+                    p_label[x] = p_label[x - 1];
+				}
+				else if (0 == p_binary[x - 1] && 255 == p_binary_up[x])
+				{
+					p_label[x] = p_label_up[x];
+				}
+				else if (255 == p_binary[x - 1] && 255 == p_binary_up[x])
+				{
+					p_label[x] = p_label[x - 1];
+					union_label(p_label[x - 1], p_label_up[x], parent);
+				}
+				else {
+
+					cout << " p_binary[x-1] = " << (int)p_binary[x - 1] <<
+
+						" p_binary_up[x] = " << (int)p_binary_up[x] << endl;
+
+				}
+
+			}
+
+		}
+
+	}
+
+	// second pass
+
+	for (int y = 1; y < binary.rows - 1; y++) {
+
+		uchar* p_label = label.ptr<uchar>(y);
+
+		for (int x = 1; x < binary.cols - 1; x++) {
+
+			if (p_label[x] > 0) {
+
+				p_label[x] = find(p_label[x], parent);
+
+			}
+
+		}
+
+	}
+
+}
+
+
+
+//  Connected Component Analysis/Labeling -- Color Labeling 
+
+//  Author:  www.icvpr.com  
+
+//  Blog  :  http://blog.csdn.net/icvpr 
+
+cv::Scalar icvprGetRandomColor()
+
 {
-	int niters = 3;
-	vector<vector<Point> > contours;
-	vector<Vec4i> hierarchy;
-	Mat temp;
-	dilate(mask, temp, Mat(), Point(-1, -1), niters);
-	erode(temp, temp, Mat(), Point(-1, -1), niters * 2);
-	dilate(temp, temp, Mat(), Point(-1, -1), niters);
-	findContours(temp, contours, hierarchy, RETR_CCOMP, CHAIN_APPROX_SIMPLE);
-	dst = Mat::zeros(img.size(), CV_8UC3);
-	if (contours.size() == 0)
+
+	uchar r = 255 * (rand() / (1.0 + RAND_MAX));
+
+	uchar g = 255 * (rand() / (1.0 + RAND_MAX));
+
+	uchar b = 255 * (rand() / (1.0 + RAND_MAX));
+
+	return cv::Scalar(b, g, r);
+
+}
+
+
+
+void icvprLabelColor(const cv::Mat& _labelImg, cv::Mat& _colorLabelImg)
+
+{
+
+	if (_labelImg.empty() ||
+
+		_labelImg.type() != CV_8UC1)
+
+	{
+
 		return;
-	// iterate through all the top-level contours,
-	// draw each connected component with its own random color
-	int idx = 0, largestComp = 0;
-	double maxArea = 0;
-	for (; idx >= 0; idx = hierarchy[idx][0])
+
+	}
+
+
+
+	std::map<int, cv::Scalar> colors;
+
+
+
+	int rows = _labelImg.rows;
+
+	int cols = _labelImg.cols;
+
+
+
+	_colorLabelImg.release();
+
+	_colorLabelImg.create(rows, cols, CV_8UC3);
+
+	_colorLabelImg = cv::Scalar::all(0);
+
+
+
+	for (int i = 0; i < rows; i++)
+
 	{
-		const vector<Point>& c = contours[idx];
-		double area = fabs(contourArea(Mat(c)));
-		if (area > maxArea)
+
+		uchar* data_src = (uchar*)_labelImg.ptr<uchar>(i);
+
+		uchar* data_dst = _colorLabelImg.ptr<uchar>(i);
+
+		for (int j = 0; j < cols; j++)
+
 		{
-			maxArea = area;
-			largestComp = idx;
+
+			int pixelValue = data_src[j];
+
+			if (pixelValue > 0)
+			{
+				// 检查关联容器中是否有pixelValue这个label编号了，没有则为他们随机分配一个颜色
+				if (colors.count(pixelValue) <= 0)
+
+				{
+
+					colors[pixelValue] = icvprGetRandomColor();
+
+				}
+
+				cv::Scalar color = colors[pixelValue];
+
+				// 给每个通道的颜色赋值
+				*data_dst++ = color[0];
+
+				*data_dst++ = color[1];
+
+				*data_dst++ = color[2];
+
+			}
+			else
+
+			{
+				data_dst++;
+
+				data_dst++;
+
+				data_dst++;
+			}
+
 		}
+
 	}
-	Scalar color(0, 0, 255);
-	drawContours(dst, contours, largestComp, color, FILLED, LINE_8, hierarchy);
+
 }
-int main(int argc, char** argv)
-{
-	VideoCapture cap;
-	bool update_bg_model = true;
-	CommandLineParser parser(argc, argv, "{help h||}{@input||}");
-	if (parser.has("help"))
-	{
-		help();
-		return 0;
-	}
-	string input = parser.get<std::string>("@input");
-	if (input.empty())
-		cap.open(0);
-	else
-		cap.open(input);
-	if (!cap.isOpened())
-	{
-		printf("\nCan not open camera or video file\n");
+
+
+
+int main() {
+
+	// load image
+
+	const char* imageName = "C:\\Users\\Yang\\Pictures\\opencv\\binary1.bmp";
+
+	Mat image;
+
+	image = imread(imageName, 1);
+
+	if (!image.data) {
+
+		cout << "No image data" << endl;
+
+		getchar();
+
 		return -1;
+
 	}
-	Mat tmp_frame, bgmask, out_frame;
-	cap >> tmp_frame;
-	if (tmp_frame.empty())
-	{
-		printf("can not read data from the video source\n");
-		return -1;
-	}
-	namedWindow("video", 1);
-	namedWindow("segmented", 1);
-	// 构造指向BackgroundSubtractorMOG2的指针
-	Ptr<BackgroundSubtractorMOG2> bgsubtractor = createBackgroundSubtractorMOG2();
-	bgsubtractor->setVarThreshold(10);
-	for (;;)
-	{
-		cap >> tmp_frame;
-		if (tmp_frame.empty())
-			break;
-		bgsubtractor->apply(tmp_frame, bgmask, update_bg_model ? -1 : 0);
-		refineSegments(tmp_frame, bgmask, out_frame);
-		imshow("video", tmp_frame);
-		imshow("segmented", out_frame);
-		char keycode = (char)waitKey(30);
-		if (keycode == 27)
-			break;
-		if (keycode == ' ')
-		{
-			update_bg_model = !update_bg_model;
-			printf("Learn background is in state = %d\n", update_bg_model);
-		}
-	}
-	return 0;
+
+
+
+	// convert to gray
+
+	cvtColor(image, image, CV_RGB2GRAY);// convert 3-channel image to 1-channel image
+
+
+
+										// threshold
+
+	Mat thresh;
+
+	threshold(image, thresh, 100, 255, THRESH_BINARY);
+
+
+
+	// label
+
+	Mat label;
+
+	myConnectedComponentLabelingTwoPass(thresh, label);
+
+
+
+	// color labeling
+
+	Mat color_label;
+
+	icvprLabelColor(label, color_label);
+
+
+
+	// show
+
+	imshow("image", image);
+
+	imshow("thresh", thresh);
+
+	imshow("label", label);
+
+	imshow("color_label", color_label);
+
+	waitKey(0);
+
 }
+
+
+
+
+
