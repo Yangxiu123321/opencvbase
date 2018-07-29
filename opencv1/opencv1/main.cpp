@@ -276,11 +276,14 @@ void findGravityPoint(cv::InputArray _src, cv::OutputArray _dst)
 {
 	Mat labelSrc;
 	Mat gravityImg;
-
-	map<int, vector<Point>> gravityPoint;
+	CV_Assert(!_src.empty());
+	CV_Assert(_src.depth() == CV_8U);
+	CV_Assert(_src.channels() == 1);
+	map<int, vector<Point>> connectedArea;
 
 	_src.copyTo(labelSrc);
-	_src.copyTo(_dst);
+	gravityImg.create(_src.size(),_src.type());
+	gravityImg = Scalar::all(255);
 
 	int rowNumber = labelSrc.rows;
 	int colNumber = labelSrc.cols;
@@ -291,24 +294,45 @@ void findGravityPoint(cv::InputArray _src, cv::OutputArray _dst)
 		{
 			if (Ptr[j] > 0)
 			{
-				gravityPoint[Ptr[j]].push_back(Point(i, j));
+				connectedArea[Ptr[j]].push_back(Point(j, i));
 			}
 		}
 	}
 	// 计算重心
 	map<int, vector<Point>>::iterator iter;
-	for (iter = gravityPoint.begin(); iter != gravityPoint.end(); iter++)
+	Point gravotyPointTemp;
+	vector<Point> gravotyPoint;
+	for (iter = connectedArea.begin(); iter != connectedArea.end(); iter++)
 	{
-		int size = iter->second.size();
-		for(int index = 0;index < size;index++)
+		int pointNum = iter->second.size();
+		std::cout << pointNum << std::endl;
+		// 过滤噪声
+		if (pointNum < 10)
 		{
-			iter->second[index]
-				
+			continue;
 		}
+		for(int index = 0;index < pointNum;index++)
+		{
+			gravotyPointTemp.x += iter->second[index].x;
+			gravotyPointTemp.y += iter->second[index].y;
+		}
+		gravotyPointTemp.x = gravotyPointTemp.x / pointNum;
+		gravotyPointTemp.y = gravotyPointTemp.y / pointNum;
+		// 把点存储取来
+		gravotyPoint.push_back(gravotyPointTemp);
+        
 	}
-
-
-
+	// 在图上画出重心
+	int gravotyPointNum = gravotyPoint.size();
+	string pointInfo;
+	for (int index = 0; index < gravotyPointNum; index++)
+	{
+       circle(gravityImg, gravotyPoint[index], 3, Scalar(0), 1, 8, 0);
+	   // 输出点坐标
+	   //std::cout << gravotyPoint[index] << std::endl;
+	}
+	// 输出
+	gravityImg.copyTo(_dst);
 }
 
 
@@ -316,7 +340,7 @@ int main() {
 
 	// load image
 
-	const char* imageName = "C:\\Users\\Yang\\Pictures\\opencv\\binary1.bmp";
+	const char* imageName = "C:\\Users\\Yang\\Pictures\\opencv\\binary4.bmp";
 
 	Mat image;
 
@@ -356,12 +380,12 @@ int main() {
 
 
 	Mat gravityPoint;
-
+	findGravityPoint(label, gravityPoint);
 
 
    // find GrayPoint
-
-
+	//Mat colorLabel;
+	//icvprLabelColor(label, colorLabel);
 
 	// show
 
@@ -369,9 +393,10 @@ int main() {
 
 	imshow("thresh", thresh);
 
-	imshow("label", label);
+	//imshow("label", label);
 
-
+	imshow("gravity", gravityPoint);
+	//imshow("colorLabel", colorLabel);
 	waitKey(0);
 
 }
