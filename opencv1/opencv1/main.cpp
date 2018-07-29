@@ -15,17 +15,12 @@ using namespace cv;
 
 
 
-const int max_size = 1000;
-
-int parent[max_size] = { 0 };
-
-
+vector<int> parent;
 
 // 找到label x的根节点
 
-int find(int x, int parent[]) {
+int find(int x, vector<int> parent) {
 
-	assert(x < max_size);
 
 	int i = x;
 
@@ -41,10 +36,8 @@ int find(int x, int parent[]) {
 
 // 将label x 和 label y合并到同一个连通域
 
-void union_label(int x, int y, int parent[]) {
-
-	assert(x < max_size && y < max_size);
-
+void union_label(int x, int y, vector<int> parent) 
+{
 	int i = x;
 
 	int j = y;
@@ -322,6 +315,7 @@ void findGravityPoint(cv::InputArray _src, cv::OutputArray _dst)
 		gravotyPoint.push_back(gravotyPointTemp);
         
 	}
+	
 	// 在图上画出重心
 	int gravotyPointNum = gravotyPoint.size();
 	string pointInfo;
@@ -340,7 +334,7 @@ int main() {
 
 	// load image
 
-	const char* imageName = "C:\\Users\\Yang\\Pictures\\opencv\\binary4.bmp";
+	const char* imageName = "C:\\Users\\Yang\\Pictures\\opencv\\binary1.bmp";
 
 	Mat image;
 
